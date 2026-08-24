@@ -1,128 +1,69 @@
 import os
-import logging
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import (
-    Application,
-    CommandHandler,
-    CallbackQueryHandler,
-    MessageHandler,
-    ContextTypes,
-    filters,
-)
-
-logging.basicConfig(
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
-)
-logger = logging.getLogger(__name__)
+import sys
+import time
+import requests
 
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+if not TOKEN:
+    sys.exit(1)
 
-def build_template(template_type: str, title: str, body: str, cta_text: str = "", cta_url: str = "") -> str:
-    cta_html = ""
+API_URL = f"https://api.telegram.org/bot{TOKEN}"
+user_templates = {}
+
+def send_msg(chat_id, text, reply_markup=None):
+    payload = {"chat_id": chat_id, "text": text, "parse_mode": "HTML"}
+    if reply_markup:
+        payload["reply_markup"] = reply_markup
+    try:
+        requests.post(f"{API_URL}/sendMessage", json=payload, timeout=10)
+    except Exception:
+        pass
+
+def generate_html(style, title, body, cta_text="", cta_url=""):
+    cta = ""
     if cta_text and cta_url:
-        cta_html = f'''
-        <tr>
-            <td align="center" style="padding: 20px 0;">
-                <a href="{cta_url}" style="background-color: #007bff; color: #ffffff; padding: 12px 24px; text-decoration: none; border-radius: 5px; font-weight: bold; display: inline-block;">{cta_text}</a>
-            </td>
-        </tr>
-        '''
-
-    bg_color = "#f4f4f7" if template_type == "promo" else "#ffffff"
+        cta = f'<tr><td align="center" style="padding:20px 0;"><a href="{cta_url}" style="background-color:#007bff;color:#ffffff;padding:12px 24px;text-decoration:none;border-radius:5px;font-weight:bold;display:inline-block;">{cta_text}</a></td></tr>'
     
-    html = f'''<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{title}</title>
-</head>
-<body style="margin: 0; padding: 20px; background-color: {bg_color}; font-family: Arial, sans-serif;">
-    <table align="center" border="0" cellpadding="0" cellspacing="0" width="100%" style="max-width: 600px; background-color: #ffffff; border: 1px solid #dddddd; border-radius: 8px; padding: 20px;">
-        <tr>
-            <td style="font-size: 24px; font-weight: bold; color: #333333; padding-bottom: 15px; border-bottom: 2px solid #007bff;">
-                {title}
-            </td>
-        </tr>
-        <tr>
-            <td style="padding: 20px 0; color: #555555; font-size: 16px; line-height: 1.6;">
-                {body}
-            </td>
-        </tr>
-        {cta_html}
-        <tr>
-            <td align="center" style="padding-top: 20px; border-top: 1px solid #eeeeee; font-size: 12px; color: #aaaaaa;">
-                Sent via Email Template Generator
-            </td>
-        </tr>
-    </table>
-</body>
-</html>'''
-    return html
-
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    keyboard = [
-        [InlineKeyboardButton("📢 Promotional Email", callback_data="tmpl_promo")],
-        [InlineKeyboardButton("📰 Newsletter Email", callback_data="tmpl_news")],
-        [InlineKeyboardButton("✉️ Simple Outreach", callback_data="tmpl_simple")]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    await update.message.reply_text(
-        "Welcome to **Email Template Generator**!\n\nSelect a template layout to get started:",
-        reply_markup=reply_markup,
-        parse_mode="Markdown"
-    )
-
-async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    
-    template_type = query.data.replace("tmpl_", "")
-    context.user_data["template_type"] = template_type
-    
-    await query.edit_message_text(
-        "Great! Send your content in this format:\n\n"
-        "`Title | Main Body | Button Text | Button URL`\n\n"
-        "**Example:**\n"
-        "`Exclusive Offer | Get 20% off all plans today! | Claim Discount | https://example.com`",
-        parse_mode="Markdown"
-    )
-
-async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_text = update.message.text
-    parts = [p.strip() for p in user_text.split("|")]
-    
-    if len(parts) < 2:
-        await update.message.reply_text(
-            "⚠️ Please use the correct format:\n`Title | Main Body | Button Text | Button URL`",
-            parse_mode="Markdown"
-        )
-        return
-        
-    title = parts[0]
-    body = parts[1]
-    cta_text = parts[2] if len(parts) > 2 else ""
-    cta_url = parts[3] if len(parts) > 3 else ""
-    
-    template_type = context.user_data.get("template_type", "simple")
-    
-    html_output = build_template(template_type, title, body, cta_text, cta_url)
-    
-    await update.message.reply_text("Here is your HTML Email Template:")
-    await update.message.reply_text(f"```html\n{html_output}\n```", parse_mode="Markdown")
+    bg = "#f4f4f7" if style == "promo" else "#ffffff"
+    return f'<!DOCTYPE html><html><body style="margin:0;padding:20px;background-color:{bg};font-family:Arial,sans-serif;"><table align="center" border="0" cellpadding="0" cellspacing="0" width="100%" style="max-width:600px;background-color:#ffffff;border:1px solid #dddddd;border-radius:8px;padding:20px;"><tr><td style="font-size:24px;font-weight:bold;color:#333333;padding-bottom:15px;border-bottom:2px solid #007bff;">{title}</td></tr><tr><td style="padding:20px 0;color:#555555;font-size:16px;line-height:1.6;">{body}</td></tr>{cta}</table></body></html>'
 
 def main():
-    if not TOKEN:
-        raise ValueError("TELEGRAM_BOT_TOKEN environment variable is missing!")
-        
-    app = Application.builder().token(TOKEN).build()
-    
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CallbackQueryHandler(button_handler))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
-    
-    logger.info("Bot starting...")
-    app.run_polling()
+    offset = 0
+    while True:
+        try:
+            res = requests.get(f"{API_URL}/getUpdates", params={"offset": offset, "timeout": 20}, timeout=25)
+            if res.status_code == 200:
+                data = res.json()
+                for update in data.get("result", []):
+                    offset = update["update_id"] + 1
+                    
+                    if "message" in update and "text" in update["message"]:
+                        chat_id = update["message"]["chat"]["id"]
+                        text = update["message"]["text"].strip()
+                        
+                        if text == "/start":
+                            keyboard = {"inline_keyboard": [[{"text": "📢 Promotional", "callback_data": "promo"}], [{"text": "✉️ Simple Outreach", "callback_data": "simple"}]]}
+                            send_msg(chat_id, "Choose a template style:", keyboard)
+                        elif "|" in text:
+                            parts = [p.strip() for p in text.split("|")]
+                            title = parts[0]
+                            body = parts[1] if len(parts) > 1 else ""
+                            cta_text = parts[2] if len(parts) > 2 else ""
+                            cta_url = parts[3] if len(parts) > 3 else ""
+                            style = user_templates.get(chat_id, "simple")
+                            
+                            html = generate_html(style, title, body, cta_text, cta_url)
+                            send_msg(chat_id, "Here is your HTML:")
+                            send_msg(chat_id, f"<pre>{html}</pre>")
+                        else:
+                            send_msg(chat_id, "Send text as:\n<code>Title | Body | Button Text | Button Link</code>")
+                            
+                    elif "callback_query" in update:
+                        chat_id = update["callback_query"]["message"]["chat"]["id"]
+                        user_templates[chat_id] = update["callback_query"]["data"]
+                        send_msg(chat_id, "Style saved! Now send your details like this:\n\n<code>Title | Body | Button Text | Button Link</code>")
+        except Exception:
+            time.sleep(3)
 
 if __name__ == "__main__":
     main()
